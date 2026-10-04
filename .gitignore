@@ -1,0 +1,18 @@
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+build/
+coverage/
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Next.js build and cache
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
