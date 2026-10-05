@@ -1,10 +1,12 @@
+"use client";
+
 import {
     ArrowLeft,
     LayoutGrid,
     PhoneOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router";
+import { useNavigate } from "@/lib/react-router-compat";
 
 type Props = {
     title: string;
@@ -58,7 +60,7 @@ export default function ConversationHeader({
                     className="
             text-4xl
             font-bold
-            text-emerald-500
+            text-rose-600 dark:text-rose-400
           "
                 >
                     {title}
