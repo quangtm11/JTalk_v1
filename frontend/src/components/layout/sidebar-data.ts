@@ -1,21 +1,21 @@
 import {
   Home,
   Mic,
-  GraduationCap,
-  ChartNoAxesColumn,
+  Video,
+  BookOpen,
+  Trophy,
   User,
-  Sparkles,
 } from "lucide-react";
 
 export const sidebarItems = [
   {
     icon: Home,
     text: "Trang chủ",
-    to: "/",
+    to: "/dashboard",
   },
   {
-    icon: GraduationCap,
-    text: "Khóa học",
+    icon: Video,
+    text: "Thư viện Video",
     to: "/courses",
   },
   {
@@ -24,19 +24,18 @@ export const sidebarItems = [
     to: "/speaking",
   },
   {
-    icon: ChartNoAxesColumn,
-    text: "Tiến trình & Thống kê",
-    to: "/progress",
+    icon: BookOpen,
+    text: "Sổ tay Từ vựng",
+    to: "/vocabulary",
+  },
+  {
+    icon: Trophy,
+    text: "Bảng xếp hạng",
+    to: "/leaderboard",
   },
   {
     icon: User,
-    text: "Trang cá nhân",
+    text: "Hồ sơ & Tiến trình",
     to: "/profile",
-  },
-  {
-    icon: Sparkles,
-    text: "Gói Premium 99k",
-    to: "/checkout",
-    highlight: true,
   },
 ];

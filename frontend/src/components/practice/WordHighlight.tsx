@@ -32,7 +32,7 @@ export const WordHighlight: React.FC<WordHighlightProps> = ({
   return (
     <div className={`space-y-3 ${className}`}>
       {/* Legend & Stats */}
-      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pb-1">
+      <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400 pb-1">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
@@ -86,19 +86,26 @@ export const WordHighlight: React.FC<WordHighlightProps> = ({
         >
           <div className="flex items-center justify-between">
             <span className="font-bold text-base">Từ: 「{selectedWord.word}」</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-white/70 dark:bg-slate-900/70">
-              {selectedWord.isCorrect ? "Chính xác ✓" : `Lỗi: ${selectedWord.errorType || "Phát âm"}`}
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-white/70 dark:bg-slate-900/70 inline-flex items-center gap-1">
+              {selectedWord.isCorrect ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />
+                  <span>Chính xác</span>
+                </>
+              ) : (
+                `Lỗi: ${selectedWord.errorType || "Phát âm"}`
+              )}
             </span>
           </div>
 
           {selectedWord.suggestion && (
-            <p className="mt-1 text-xs leading-relaxed">
-              <strong>Gợi ý AI:</strong> {selectedWord.suggestion}
+            <p className="mt-1.5 text-sm leading-relaxed">
+              <strong className="font-semibold">Gợi ý AI:</strong> {selectedWord.suggestion}
             </p>
           )}
           {selectedWord.accuracyScore !== undefined && (
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Điểm tương đồng âm: <strong>{selectedWord.accuracyScore}/100</strong>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              Điểm tương đồng âm: <strong className="font-semibold">{selectedWord.accuracyScore}/100</strong>
             </p>
           )}
         </div>

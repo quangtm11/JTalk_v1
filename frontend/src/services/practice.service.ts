@@ -78,14 +78,41 @@ export const practiceService = {
   },
 
   /**
-   * Text-to-speech generation (Google Cloud TTS / fallback)
+   * Text-to-speech generation (Microsoft Edge Neural TTS / Studio-grade native audio)
    */
-  synthesizeVoice: async (text: string, voiceName?: string, gender?: "FEMALE" | "MALE") => {
+  synthesizeVoice: async (
+    text: string,
+    voiceName?: string,
+    gender?: "FEMALE" | "MALE",
+    rate?: number
+  ): Promise<{ audioContent: string; mimeType: string; voice: string; cached?: boolean }> => {
     const res = await api.post("/practices/text-to-speech", {
       text,
       voiceName,
       gender,
+      rate,
     });
+    return res.data?.data || res.data;
+  },
+
+  /**
+   * Synthesize natural Japanese speech using Voicevox Engine (VITS + OpenJTalk)
+   */
+  synthesizeVoicevox: async (payload: {
+    text: string;
+    speakerId?: number;
+    speedScale?: number;
+    pitchScale?: number;
+  }): Promise<{ audioContent: string; mimeType: string; speakerId: number; cached?: boolean }> => {
+    const res = await api.post("/practices/voicevox", payload);
+    return res.data?.data || res.data;
+  },
+
+  /**
+   * Check Voicevox health and get available character speakers
+   */
+  getVoicevoxStatus: async () => {
+    const res = await api.get("/practices/voicevox/status");
     return res.data?.data || res.data;
   },
 
@@ -154,6 +181,27 @@ export const practiceService = {
     userMessage: string;
   }): Promise<RoleplayChatResponse> => {
     const res = await api.post("/practices/roleplay-chat", payload);
+    return res.data?.data || res.data;
+  },
+
+  /**
+   * Get dynamic, context-aware suggestions for responding to AI
+   */
+  getRoleplaySuggestions: async (payload: {
+    lessonId?: string;
+    scenarioTitle?: string;
+    level?: string;
+    aiMessage?: string;
+    conversationHistory?: RoleplayMessage[];
+  }): Promise<{
+    suggestedAnswers: Array<{
+      japanese: string;
+      furigana?: string;
+      romaji?: string;
+      translation?: string;
+    }>;
+  }> => {
+    const res = await api.post("/practices/roleplay-suggestions", payload);
     return res.data?.data || res.data;
   },
 };

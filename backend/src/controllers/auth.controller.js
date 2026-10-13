@@ -7,6 +7,7 @@ const cookieOptions = {
   secure: config.env === "production",
   sameSite: config.env === "production" ? "none" : "lax",
   maxAge: config.jwt.refreshTokenTtlMs,
+  path: "/",
 };
 
 /**
@@ -20,7 +21,7 @@ export const register = async (req, res, next) => {
       return errorResponse(res, "Vui lòng cung cấp username, password và email.", 400);
     }
 
-    const newUser = await AuthService.register({
+    const { user, accessToken, refreshToken } = await AuthService.register({
       username,
       password,
       email,
@@ -29,7 +30,19 @@ export const register = async (req, res, next) => {
       displayName,
     });
 
-    return successResponse(res, newUser, "Đăng ký tài khoản thành công!", 201);
+    // Set secure HTTP-only cookie with refreshToken for instant session restore
+    res.cookie("refreshToken", refreshToken, cookieOptions);
+
+    return res.status(201).json({
+      success: true,
+      message: "Đăng ký tài khoản thành công!",
+      data: {
+        user,
+        accessToken,
+      },
+      user,
+      accessToken,
+    });
   } catch (error) {
     next(error);
   }
@@ -54,15 +67,16 @@ export const login = async (req, res, next) => {
     // Set secure HTTP-only cookie with refreshToken
     res.cookie("refreshToken", refreshToken, cookieOptions);
 
-    return successResponse(
-      res,
-      {
+    return res.status(200).json({
+      success: true,
+      message: `Chào mừng ${user.displayName} quay trở lại!`,
+      data: {
         user,
         accessToken,
       },
-      `Chào mừng ${user.displayName} quay trở lại!`,
-      200
-    );
+      user,
+      accessToken,
+    });
   } catch (error) {
     next(error);
   }
@@ -81,15 +95,16 @@ export const refresh = async (req, res, next) => {
 
     const { accessToken, user } = await AuthService.refreshAccessToken(token);
 
-    return successResponse(
-      res,
-      {
+    return res.status(200).json({
+      success: true,
+      message: "Cấp mới Access Token thành công!",
+      data: {
         accessToken,
         user,
       },
-      "Cấp mới Access Token thành công!",
-      200
-    );
+      accessToken,
+      user,
+    });
   } catch (error) {
     next(error);
   }
@@ -104,10 +119,47 @@ export const logout = async (req, res, next) => {
 
     if (token) {
       await AuthService.logout(token);
-      res.clearCookie("refreshToken", cookieOptions);
     }
 
+    // Always clear the refreshToken cookie cleanly across all browsers without maxAge
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: config.env === "production",
+      sameSite: config.env === "production" ? "none" : "lax",
+      path: "/",
+    });
+
     return successResponse(res, null, "Đăng xuất thành công!", 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/auth/forgot-password
+ */
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { emailOrUsername } = req.body;
+    const result = await AuthService.forgotPassword({ emailOrUsername });
+    return successResponse(res, result, result.message, 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/auth/reset-password
+ */
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { emailOrUsername, resetCode, newPassword } = req.body;
+    const result = await AuthService.resetPassword({
+      emailOrUsername,
+      resetCode,
+      newPassword,
+    });
+    return successResponse(res, result, result.message, 200);
   } catch (error) {
     next(error);
   }

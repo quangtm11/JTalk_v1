@@ -44,6 +44,12 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin"],
       default: "user",
     },
+    resetPasswordToken: {
+      type: String,
+    },
+    resetPasswordExpires: {
+      type: Date,
+    },
 
     // 1. Profile học viên
     profile: {
@@ -54,7 +60,16 @@ const userSchema = new mongoose.Schema(
       },
       goal: {
         type: String,
-        enum: ["daily_conversation", "interview", "business", "travel"],
+        enum: [
+          "daily_conversation",
+          "interview",
+          "business",
+          "travel",
+          "daily",
+          "work",
+          "hobby",
+          "exam",
+        ],
         default: "daily_conversation",
       },
       occupation: {
@@ -89,6 +104,39 @@ const userSchema = new mongoose.Schema(
         type: Number,
         default: 1,
       },
+      claimedQuests: [
+        {
+          questId: { type: String, required: true },
+          dateKey: { type: String, required: true }, // YYYY-MM-DD for daily, YYYY-Www for weekly
+          claimedAt: { type: Date, default: Date.now },
+          xpEarned: { type: Number, default: 0 },
+        },
+      ],
+      streakFreeze: {
+        equipped: {
+          type: Number,
+          default: 0,
+          min: 0,
+          max: 2,
+        },
+        lastUsedAt: {
+          type: Date,
+          default: null,
+        },
+      },
+      league: {
+        type: String,
+        enum: ["bronze", "silver", "gold", "platinum", "diamond"],
+        default: "bronze",
+      },
+      leaguePoints: {
+        type: Number,
+        default: 0,
+      },
+      onboardingCompleted: {
+        type: Boolean,
+        default: false,
+      },
     },
 
     // 3. Freemium Quota & Subscription Snapshot
@@ -117,6 +165,16 @@ const userSchema = new mongoose.Schema(
         default: 0,
       },
       minutesSpent: {
+        type: Number,
+        default: 0,
+      },
+      earnedBonusPractices: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 2,
+      },
+      vocabReviewsToday: {
         type: Number,
         default: 0,
       },

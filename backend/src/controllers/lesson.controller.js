@@ -1,5 +1,6 @@
 import CurriculumService from "../services/curriculum.service.js";
 import Lesson from "../models/Lesson.js";
+import Topic from "../models/Topic.js";
 import { successResponse, errorResponse } from "../utils/apiResponse.js";
 import mongoose from "mongoose";
 
@@ -47,10 +48,14 @@ export const getLessonById = async (req, res, next) => {
 export const createLesson = async (req, res, next) => {
   try {
     const {
+      courseId,
       topicId,
       title,
       description,
       level,
+      orderIndex,
+      episodeNumber,
+      lessonType,
       sampleSentence,
       translation,
       image,
@@ -58,41 +63,67 @@ export const createLesson = async (req, res, next) => {
       durationMinutes,
       isPremiumOnly,
       isPublished,
+      youtubeId,
+      videoUrl,
+      channelName,
+      channelUrl,
+      sourceType,
+      subtitles,
       dialogues,
       vocabularyList,
     } = req.body;
 
     const sentenceToUse =
-      sampleSentence || (dialogues && dialogues.length > 0 ? dialogues[0].japanese : "");
+      sampleSentence ||
+      (dialogues && dialogues.length > 0 ? dialogues[0].japanese : "") ||
+      (subtitles && subtitles.length > 0 ? subtitles[0].japanese : title);
 
-    if (!topicId || !title || !sentenceToUse) {
-      return errorResponse(
-        res,
-        "Không thể thiếu topicId, title hoặc sampleSentence/dialogues",
-        400
-      );
+    if (!topicId || !title) {
+      return errorResponse(res, "Không thể thiếu topicId hoặc title", 400);
     }
 
     if (!mongoose.Types.ObjectId.isValid(topicId)) {
       return errorResponse(res, "topicId không hợp lệ", 400);
     }
 
-    const lesson = await Lesson.create({
+    const lessonData = {
       topicId,
       title,
       description: description || "",
       level: level || "N5",
+      orderIndex: orderIndex !== undefined ? Number(orderIndex) : 0,
+      episodeNumber: episodeNumber !== undefined ? Number(episodeNumber) : undefined,
+      lessonType: lessonType || "video",
       sampleSentence: sentenceToUse,
       translation:
-        translation || (dialogues && dialogues.length > 0 ? dialogues[0].translation : ""),
+        translation ||
+        (dialogues && dialogues.length > 0 ? dialogues[0].translation : "") ||
+        (subtitles && subtitles.length > 0 ? subtitles[0].translation : ""),
       image: image || "",
+      youtubeId: youtubeId || "",
+      videoUrl: videoUrl || "",
+      channelName: channelName || "",
+      channelUrl: channelUrl || "",
+      sourceType: sourceType || "community",
+      subtitles: subtitles || [],
       duration: duration || "10 phút",
       durationMinutes: durationMinutes || 10,
       isPremiumOnly: !!isPremiumOnly,
       isPublished: isPublished !== undefined ? isPublished : true,
       dialogues: dialogues || [],
       vocabularyList: vocabularyList || [],
-    });
+    };
+
+    if (courseId && mongoose.Types.ObjectId.isValid(courseId)) {
+      lessonData.courseId = courseId;
+    } else if (topicId && mongoose.Types.ObjectId.isValid(topicId)) {
+      const topic = await Topic.findById(topicId);
+      if (topic && topic.courseId) {
+        lessonData.courseId = topic.courseId;
+      }
+    }
+
+    const lesson = await Lesson.create(lessonData);
 
     return successResponse(res, lesson, "Tạo bài học thành công!", 201);
   } catch (error) {
@@ -108,6 +139,14 @@ export const updateLesson = async (req, res, next) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return errorResponse(res, "Lesson ID không hợp lệ.", 400);
+    }
+
+    // Auto-attach courseId from topicId if topicId changed but courseId was not specified
+    if (req.body.topicId && !req.body.courseId && mongoose.Types.ObjectId.isValid(req.body.topicId)) {
+      const topic = await Topic.findById(req.body.topicId);
+      if (topic && topic.courseId) {
+        req.body.courseId = topic.courseId;
+      }
     }
 
     const lesson = await Lesson.findByIdAndUpdate(id, { $set: req.body }, { new: true });

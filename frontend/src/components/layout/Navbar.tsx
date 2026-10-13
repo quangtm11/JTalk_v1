@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { Link } from "react-router";
+"use client";
+
+import { useState, useEffect } from "react";
+import { Link } from "@/lib/react-router-compat";
 import {
   Search,
   Flame,
@@ -10,12 +12,15 @@ import {
   Moon,
   Menu,
   Trophy,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSidebarStore } from "@/stores/useSidebarStore";
 import { useThemeStore } from "@/stores/useThemeStore";
 import Logout from "../auth/Logout";
 import { PremiumModal } from "@/components/common/PremiumModal";
+import { DailyCheckInModal } from "@/components/gamification/DailyCheckInModal";
+import { QuickSearchModal } from "@/components/common/QuickSearchModal";
 import { Badge } from "@/components/common/Badge";
 
 export default function Navbar() {
@@ -23,6 +28,26 @@ export default function Navbar() {
   const { toggleSidebar } = useSidebarStore();
   const { isDark, toggleTheme } = useThemeStore();
   const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showCheckInModal, setShowCheckInModal] = useState(false);
+  const [showQuickSearch, setShowQuickSearch] = useState(false);
+  const [shortcutLabel, setShortcutLabel] = useState("Ctrl + K");
+
+  // Global Cmd+K / Ctrl+K keyboard shortcut listener & OS detection
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const isMac = /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent || navigator.platform || "");
+      setShortcutLabel(isMac ? "⌘K" : "Ctrl + K");
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setShowQuickSearch((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const targetLevel = user?.profile?.targetLevel || "N5";
   const xpPoints = user?.gamification?.totalXp || 0;
@@ -42,55 +67,84 @@ export default function Navbar() {
             <Menu size={18} />
           </button>
 
-          {/* Search input - Rounded full pill with keyboard shortcut */}
-          <div className="relative w-full hidden sm:block">
+          {/* Mobile Search Button */}
+          <button
+            onClick={() => setShowQuickSearch(true)}
+            type="button"
+            className="sm:hidden w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            aria-label="Tìm kiếm nhanh"
+            title={`Tìm kiếm bài học & từ vựng (${shortcutLabel})`}
+          >
+            <Search size={16} />
+          </button>
+
+          {/* Search input trigger - Rounded full pill with keyboard shortcut */}
+          <div
+            onClick={() => setShowQuickSearch(true)}
+            className="relative w-full hidden sm:flex items-center h-10 rounded-full bg-slate-100/90 dark:bg-slate-800/70 pl-10 pr-12 text-xs font-medium border border-transparent hover:border-rose-400 dark:hover:border-rose-500/50 cursor-pointer transition-all shadow-2xs group"
+          >
             <Search
               size={15}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 group-hover:text-rose-500 transition-colors"
             />
-            <input
-              placeholder="Tìm bài học, kịch bản phỏng vấn, từ vựng..."
-              className="h-10 w-full rounded-full bg-slate-100/90 dark:bg-slate-800/70 pl-10 pr-12 text-xs font-medium outline-hidden border border-transparent dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all focus:bg-white dark:focus:bg-slate-800 focus:border-emerald-500 dark:focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 shadow-2xs"
-            />
-            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-3xs font-bold text-slate-400 dark:text-slate-500 bg-white/80 dark:bg-slate-700/80 px-1.5 py-0.5 rounded-md border border-slate-200/80 dark:border-slate-600">
-              ⌘K
+            <span className="text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors truncate">
+              Tìm bài học, kịch bản phỏng vấn, từ vựng...
+            </span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-3xs font-mono font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-700/80 px-2 py-0.5 rounded-md border border-slate-200/90 dark:border-slate-600 shadow-2xs group-hover:border-rose-300 group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors tracking-tight">
+              {shortcutLabel}
             </span>
           </div>
         </div>
 
         {/* Right Section: Badges, Actions, Theme Toggle & User */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Admin Portal Quick Link (Only visible to admin) */}
+          {user?.role === "admin" && (
+            <Link
+              to="/admin"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-full text-xs font-bold shadow-xs hover:shadow-md hover:shadow-indigo-500/25 active:scale-97 transition-all cursor-pointer"
+              title="Truy cập Cổng Quản trị viên"
+            >
+              <ShieldCheck size={14} />
+              <span className="hidden sm:inline">Admin Portal</span>
+              <span className="sm:hidden">Admin</span>
+            </Link>
+          )}
+
           {/* Quick Action: Start AI Speaking */}
           <Link
             to="/speaking"
-            className="hidden md:inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white rounded-full text-xs font-bold shadow-xs hover:shadow-md hover:shadow-emerald-500/20 active:scale-97 transition-all cursor-pointer"
+            className="hidden md:inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white rounded-full text-xs font-bold shadow-xs hover:shadow-md hover:shadow-rose-500/20 active:scale-97 transition-all cursor-pointer"
           >
             <Mic size={14} className="animate-pulse" />
-            <span>Luyện phản xạ</span>
+            <span>Luyện nói AI</span>
           </Link>
 
           {/* Daily Streak Badge */}
-          <div
-            className="flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 px-3 py-1.5 text-xs font-black text-amber-900 dark:text-amber-200 shrink-0 cursor-default hover:scale-103 transition-transform"
-            title={`Bạn đang giữ chuỗi ${streak} ngày học liên tiếp!`}
+          <button
+            onClick={() => setShowCheckInModal(true)}
+            type="button"
+            className="flex items-center gap-1.5 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-800/60 px-2.5 sm:px-3 py-1.5 text-xs font-black text-rose-900 dark:text-rose-200 shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-2xs hover:bg-rose-100/80 dark:hover:bg-rose-900/40"
+            title={`Chuỗi ${streak} ngày học liên tiếp! Bấm để xem Thẻ điểm danh 7 ngày.`}
           >
-            <Flame size={15} className="text-amber-500 fill-amber-500 animate-bounce" />
-            <span>{streak} ngày</span>
-          </div>
+            <Flame size={15} className="text-rose-500 fill-rose-500 animate-pulse" />
+            <span>{streak}</span>
+            <span className="hidden sm:inline">ngày</span>
+          </button>
 
           {/* XP Pill (Hidden on mobile) */}
           {xpPoints > 0 && (
             <div
-              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/60 rounded-full text-xs font-black text-indigo-900 dark:text-indigo-200 shrink-0"
+              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-full text-xs font-black text-amber-900 dark:text-amber-200 shrink-0"
               title={`Tổng điểm kinh nghiệm: ${xpPoints} XP`}
             >
-              <Trophy size={13} className="text-indigo-500" />
+              <Trophy size={13} className="text-amber-500" />
               <span>{xpPoints} XP</span>
             </div>
           )}
 
-          {/* Quota / Premium Badge */}
-          {isPremium ? (
+          {/* Quota / Premium Badge (Không hiển thị cho Admin vì Admin đã có toàn quyền) */}
+          {user?.role === "admin" ? null : isPremium ? (
             <Badge variant="premium" size="sm" icon={<Sparkles className="w-3 h-3" />}>
               PRO Vô Hạn
             </Badge>
@@ -100,18 +154,18 @@ export default function Navbar() {
               type="button"
               className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
                 remainingFreePractices > 0
-                  ? "bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-800 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/60"
-                  : "bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border-rose-300/80 dark:border-rose-800/60 animate-pulse"
+                  ? "bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-800 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/60"
+                  : "bg-rose-100 dark:bg-rose-950/60 hover:bg-rose-200 text-rose-700 dark:text-rose-300 border-rose-300/80 dark:border-rose-800/60 animate-pulse"
               }`}
             >
               <Gift
                 size={13}
-                className={remainingFreePractices > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}
+                className="text-rose-600 dark:text-rose-400"
               />
               <span>
                 {remainingFreePractices > 0
-                  ? `Còn ${remainingFreePractices}/2 lượt`
-                  : "Hết lượt (0/2)"}
+                  ? `Còn ${remainingFreePractices}/5 lượt`
+                  : "Hết lượt (0/5)"}
               </span>
               <span className="font-extrabold underline underline-offset-2 ml-0.5">
                 Nâng cấp
@@ -140,12 +194,12 @@ export default function Navbar() {
             className="flex items-center gap-2 group relative p-0.5 rounded-full"
             title="Xem hồ sơ cá nhân"
           >
-            <div className="h-9 w-9 rounded-full p-0.5 bg-gradient-to-tr from-emerald-500 via-teal-400 to-indigo-500 group-hover:scale-105 transition-transform shadow-2xs">
-              <div className="w-full h-full rounded-full bg-emerald-600 dark:bg-slate-900 text-white font-black text-xs flex items-center justify-center border-2 border-white dark:border-[#0f172a]">
+            <div className="h-9 w-9 rounded-full p-0.5 bg-gradient-to-tr from-rose-500 via-rose-600 to-amber-500 group-hover:scale-105 transition-transform shadow-2xs">
+              <div className="w-full h-full rounded-full bg-rose-600 dark:bg-slate-900 text-white font-black text-xs flex items-center justify-center border-2 border-white dark:border-[#0f172a]">
                 {user?.displayName ? user.displayName.charAt(0).toUpperCase() : "J"}
               </div>
             </div>
-            <span className="hidden xl:inline-block text-2xs font-extrabold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+            <span className="hidden xl:inline-block text-2xs font-extrabold px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
               {targetLevel}
             </span>
           </Link>
@@ -159,6 +213,17 @@ export default function Navbar() {
         isOpen={showPremiumModal}
         onClose={() => setShowPremiumModal(false)}
         reason="quota_exceeded"
+      />
+
+      <DailyCheckInModal
+        isOpen={showCheckInModal}
+        onClose={() => setShowCheckInModal(false)}
+        autoCheckDaily={false}
+      />
+
+      <QuickSearchModal
+        isOpen={showQuickSearch}
+        onClose={() => setShowQuickSearch(false)}
       />
     </>
   );

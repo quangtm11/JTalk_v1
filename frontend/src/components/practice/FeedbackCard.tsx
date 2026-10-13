@@ -1,8 +1,22 @@
+import { useState, useRef, useEffect } from "react";
 import type { ProcessVoiceResponse } from "@/types";
-import { Lightbulb, ArrowRight, RotateCcw } from "lucide-react";
+import {
+  Lightbulb,
+  ArrowRight,
+  RotateCcw,
+  Play,
+  Pause,
+  Volume2,
+  Mic,
+  Headphones,
+  Sparkles,
+} from "lucide-react";
 
 interface FeedbackCardProps {
   evaluation: ProcessVoiceResponse;
+  userAudioUrl?: string | null;
+  nativeSentence?: string;
+  onPlayNative?: (text?: string) => void;
   onRetry: () => void;
   onNext?: () => void;
   hasNext?: boolean;
@@ -11,6 +25,9 @@ interface FeedbackCardProps {
 
 export const FeedbackCard: React.FC<FeedbackCardProps> = ({
   evaluation,
+  userAudioUrl,
+  nativeSentence,
+  onPlayNative,
   onRetry,
   onNext,
   hasNext = false,
@@ -18,37 +35,79 @@ export const FeedbackCard: React.FC<FeedbackCardProps> = ({
 }) => {
   const { scores, overallScore, feedback } = evaluation;
 
+  // User recorded audio player state
+  const [isPlayingUserAudio, setIsPlayingUserAudio] = useState(false);
+  const [userAudioProgress, setUserAudioProgress] = useState(0);
+  const userAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const audio = userAudioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      if (audio.duration) {
+        setUserAudioProgress((audio.currentTime / audio.duration) * 100);
+      }
+    };
+
+    const handleEnded = () => {
+      setIsPlayingUserAudio(false);
+      setUserAudioProgress(0);
+    };
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("ended", handleEnded);
+
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("ended", handleEnded);
+      try {
+        audio.pause();
+      } catch (_) {}
+    };
+  }, [userAudioUrl]);
+
+  const toggleUserAudio = () => {
+    if (!userAudioRef.current) return;
+    if (isPlayingUserAudio) {
+      userAudioRef.current.pause();
+      setIsPlayingUserAudio(false);
+    } else {
+      userAudioRef.current.play().then(() => setIsPlayingUserAudio(true)).catch(console.error);
+    }
+  };
+
   // Rating and color scheme based on overall score
   const getScoreTheme = (score: number) => {
     if (score >= 85) {
       return {
         label: "Xuất sắc! (素晴らしい)",
-        bg: "from-emerald-500 to-teal-600",
-        text: "text-emerald-600 dark:text-emerald-400",
-        badgeBg: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
+        bg: "from-rose-500 via-rose-600 to-amber-500",
+        text: "text-rose-600 dark:text-rose-400",
+        badgeBg: "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800",
       };
     }
     if (score >= 70) {
       return {
         label: "Rất tốt! (よくできました)",
-        bg: "from-blue-500 to-cyan-600",
-        text: "text-blue-600 dark:text-blue-400",
-        badgeBg: "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800",
-      };
-    }
-    if (score >= 50) {
-      return {
-        label: "Khá ổn! Cố gắng thêm nhé (頑張って)",
         bg: "from-amber-500 to-yellow-600",
         text: "text-amber-600 dark:text-amber-400",
         badgeBg: "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",
       };
     }
+    if (score >= 50) {
+      return {
+        label: "Khá ổn! Cố gắng thêm nhé (頑張って)",
+        bg: "from-blue-500 to-indigo-600",
+        text: "text-blue-600 dark:text-blue-400",
+        badgeBg: "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800",
+      };
+    }
     return {
       label: "Hãy luyện tập thêm một lần nữa",
-      bg: "from-rose-500 to-orange-600",
-      text: "text-rose-600 dark:text-rose-400",
-      badgeBg: "bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800",
+      bg: "from-slate-600 to-slate-800",
+      text: "text-slate-600 dark:text-slate-400",
+      badgeBg: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700",
     };
   };
 
@@ -58,22 +117,22 @@ export const FeedbackCard: React.FC<FeedbackCardProps> = ({
     {
       title: "Phát âm (Pronunciation)",
       score: scores?.pronunciation ?? overallScore,
-      color: "bg-emerald-500",
+      color: "bg-rose-500",
     },
     {
       title: "Lưu loát (Fluency)",
       score: scores?.fluency ?? overallScore,
-      color: "bg-blue-500",
+      color: "bg-amber-500",
     },
     {
       title: "Độ chính xác (Accuracy)",
       score: scores?.accuracy ?? overallScore,
-      color: "bg-teal-500",
+      color: "bg-indigo-500",
     },
     {
       title: "Độ đầy đủ (Completeness)",
       score: scores?.completeness ?? overallScore,
-      color: "bg-indigo-500",
+      color: "bg-emerald-500",
     },
   ];
 
@@ -96,7 +155,7 @@ export const FeedbackCard: React.FC<FeedbackCardProps> = ({
               {theme.label}
             </div>
             <h4 className="text-lg font-bold text-slate-800 dark:text-white">Kết quả đánh giá phản xạ</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Chấm điểm tự động bằng mô hình AI chuẩn Nhật</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Chấm điểm tự động bằng mô hình AI chuẩn Nhật</p>
           </div>
         </div>
 
@@ -113,7 +172,7 @@ export const FeedbackCard: React.FC<FeedbackCardProps> = ({
             <button
               onClick={onNext}
               type="button"
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500 hover:brightness-105 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-md transition-all cursor-pointer"
             >
               <span>Câu kế tiếp</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -121,6 +180,28 @@ export const FeedbackCard: React.FC<FeedbackCardProps> = ({
           )}
         </div>
       </div>
+
+      {/* Celebratory High Score Banner (>= 80) */}
+      {overallScore >= 80 && (
+        <div className="p-3.5 bg-gradient-to-r from-rose-500/10 via-amber-500/15 to-emerald-500/10 border border-rose-300/80 dark:border-rose-800/80 rounded-2xl flex items-center justify-between gap-3 shadow-2xs animate-in fade-in zoom-in-98 duration-200">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Sparkles className="w-4 h-4 animate-spin-slow" />
+            </div>
+            <div>
+              <p className="text-xs font-black text-slate-900 dark:text-white">
+                Xuất sắc! Bạn đã đạt trên 80 điểm phản xạ! 🎉
+              </p>
+              <p className="text-3xs text-rose-700 dark:text-rose-300 font-medium">
+                Ngữ điệu tự nhiên, từ vựng chuẩn xác. Giữ vững phong độ này nhé!
+              </p>
+            </div>
+          </div>
+          <span className="hidden sm:inline-block px-2.5 py-1 rounded-full text-3xs font-black uppercase tracking-wider bg-rose-500 text-white shadow-xs">
+            +50 XP Thưởng
+          </span>
+        </div>
+      )}
 
       {/* 4 Criteria Progress Bars */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -140,24 +221,112 @@ export const FeedbackCard: React.FC<FeedbackCardProps> = ({
         ))}
       </div>
 
+      {/* AUDIO COMPARISON: Nghe lại giọng thu âm & Đối chiếu giọng mẫu */}
+      <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 via-rose-50/40 to-slate-50 dark:from-slate-800/60 dark:via-rose-950/20 dark:to-slate-800/60 border border-slate-200 dark:border-slate-700/70 rounded-2xl space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Headphones className="w-4 h-4 text-rose-500" />
+            <h5 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+              Đối chiếu âm thanh phát âm
+            </h5>
+          </div>
+          <span className="text-[11px] text-slate-400">So sánh ngữ điệu & trường âm</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          {/* 1. User Recorded Audio Playback */}
+          <div className="p-3 bg-white dark:bg-slate-900 border border-rose-200/80 dark:border-rose-900/50 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center shrink-0">
+                <Mic className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
+                  Giọng thu âm của bạn
+                </span>
+                <span className="text-[11px] text-slate-400 block">
+                  {userAudioUrl ? (isPlayingUserAudio ? "Đang phát..." : "Bấm để nghe lại") : "Ghi âm trực tiếp"}
+                </span>
+              </div>
+            </div>
+
+            {userAudioUrl ? (
+              <div className="flex items-center gap-2">
+                <audio ref={userAudioRef} src={userAudioUrl} preload="auto" className="hidden" />
+                <button
+                  type="button"
+                  onClick={toggleUserAudio}
+                  className="px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                >
+                  {isPlayingUserAudio ? (
+                    <>
+                      <Pause className="w-3.5 h-3.5 fill-current" /> Dừng
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" /> Nghe
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <span className="text-[11px] text-slate-400 italic">Đã xử lý âm</span>
+            )}
+          </div>
+
+          {/* 2. Native Model Audio Playback */}
+          <div className="p-3 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/50 rounded-xl flex items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 flex items-center justify-center shrink-0">
+                <Volume2 className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block truncate">
+                  Giọng mẫu bản xứ
+                </span>
+                <span className="text-[11px] text-slate-400 block">Phát âm Tokyo chuẩn</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onPlayNative?.(nativeSentence || evaluation.targetSentence)}
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <Volume2 className="w-3.5 h-3.5" /> Nghe mẫu
+            </button>
+          </div>
+        </div>
+
+        {/* User audio progress indicator */}
+        {isPlayingUserAudio && (
+          <div className="w-full bg-slate-200 dark:bg-slate-700 h-1 rounded-full overflow-hidden mt-1">
+            <div
+              className="bg-rose-500 h-full rounded-full transition-all duration-100"
+              style={{ width: `${userAudioProgress}%` }}
+            />
+          </div>
+        )}
+      </div>
+
       {/* AI Advice & Suggestions */}
       {(feedback?.generalAdvice || (feedback?.grammarSuggestions && feedback.grammarSuggestions.length > 0)) && (
-        <div className="p-4 bg-emerald-50/70 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800 rounded-2xl space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-            <Lightbulb className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+        <div className="p-4 bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800 rounded-2xl space-y-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
+            <Lightbulb className="w-4 h-4 text-amber-500 animate-spin-slow" />
             <span>Lời khuyên của gia sư AI</span>
           </div>
 
           {feedback.generalAdvice && (
-            <p className="text-xs sm:text-sm text-emerald-950 dark:text-emerald-100 leading-relaxed font-medium">
+            <p className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
               {feedback.generalAdvice}
             </p>
           )}
 
           {feedback.grammarSuggestions && feedback.grammarSuggestions.length > 0 && (
             <div className="space-y-1 pt-1">
-              <span className="text-xs font-semibold text-emerald-900 dark:text-emerald-200">Mẫu câu nói tự nhiên hơn:</span>
-              <ul className="list-disc list-inside text-xs text-emerald-800 dark:text-emerald-300 space-y-0.5 pl-1">
+              <span className="text-sm font-semibold text-amber-900 dark:text-amber-200">Mẫu câu nói tự nhiên hơn:</span>
+              <ul className="list-disc list-inside text-sm text-amber-800 dark:text-amber-300 space-y-1 pl-1">
                 {feedback.grammarSuggestions.map((sug, i) => (
                   <li key={i}>{sug}</li>
                 ))}

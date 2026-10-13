@@ -23,6 +23,8 @@ export const useAuth = () => {
   }, [accessToken, user]);
 
   const isPremium = useMemo(() => {
+    // Quản trị viên (admin) có toàn quyền truy cập hệ thống mà không cần mua/gán gói premium
+    if (user?.role === "admin") return true;
     if (!user || !user.subscription) return false;
     const { tier, expiresAt } = user.subscription;
     if (tier !== "premium") return false;
@@ -40,15 +42,41 @@ export const useAuth = () => {
     return user?.gamification?.totalXp || 0;
   }, [user]);
 
+  const streakFreeze = useMemo(() => {
+    return user?.gamification?.streakFreeze || { equipped: 0, lastUsedAt: null };
+  }, [user]);
+
+  const league = useMemo(() => {
+    return user?.gamification?.league || "bronze";
+  }, [user]);
+
+  const onboardingCompleted = useMemo(() => {
+    return !!user?.gamification?.onboardingCompleted;
+  }, [user]);
+
+  const bonusPractices = useMemo(() => {
+    return user?.dailyUsage?.earnedBonusPractices ?? user?.quota?.bonusPractices ?? 0;
+  }, [user]);
+
+  const canEarnBonus = useMemo(() => {
+    return !isPremium && bonusPractices < 2;
+  }, [isPremium, bonusPractices]);
+
   const practiceCountToday = useMemo(() => {
     const userCount = user?.dailyUsage?.practiceCount ?? user?.quota?.usedToday ?? 0;
     return Math.max(userCount, dailyPracticeCount);
   }, [user, dailyPracticeCount]);
 
+  const maxFreePractices = useMemo(() => {
+    if (isPremium) return 999;
+    const limit = typeof user?.quota?.limit === "number" ? user.quota.limit : (5 + bonusPractices);
+    return limit;
+  }, [isPremium, user?.quota?.limit, bonusPractices]);
+
   const remainingFreePractices = useMemo(() => {
     if (isPremium) return 999;
-    return Math.max(0, 2 - practiceCountToday);
-  }, [isPremium, practiceCountToday]);
+    return Math.max(0, maxFreePractices - practiceCountToday);
+  }, [isPremium, maxFreePractices, practiceCountToday]);
 
   return {
     user,
@@ -58,6 +86,12 @@ export const useAuth = () => {
     isPremium,
     streak,
     xp,
+    streakFreeze,
+    league,
+    onboardingCompleted,
+    bonusPractices,
+    maxFreePractices,
+    canEarnBonus,
     practiceCountToday,
     remainingFreePractices,
     dailyPracticeCount,

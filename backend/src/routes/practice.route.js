@@ -10,6 +10,9 @@ import {
   updatePractice,
   deletePractice,
   aiRoleplayChat,
+  getRoleplaySuggestions,
+  synthesizeVoicevox,
+  getVoicevoxStatus,
 } from "../controllers/practice.controller.js";
 import { protectedRoute } from "../middleware/auth.middleware.js";
 import { checkPracticeQuota } from "../middleware/quota.middleware.js";
@@ -17,30 +20,49 @@ import { handleAudioUpload } from "../middleware/upload.middleware.js";
 
 const router = express.Router();
 
-// All practice endpoints require authentication
+// -------------------------------------------------------------
+// Public TTS Audio endpoints (Cho phép phát âm không cần chặn bởi token)
+// -------------------------------------------------------------
+/**
+ * POST /api/v1/practices/text-to-speech
+ * Tạo giọng phát âm tiếng Nhật từ văn bản (Microsoft Edge Neural TTS / Cloud Studio Audio)
+ */
+router.post("/text-to-speech", synthesizeVoice);
+
+/**
+ * POST /api/v1/practices/voicevox
+ * Tương thích ngược Voicevox Engine (Tự động fallback sang Edge TTS trên Web Production)
+ */
+router.post("/voicevox", synthesizeVoicevox);
+
+/**
+ * GET /api/v1/practices/voicevox/status
+ * Trạng thái Engine và danh sách nhân vật giọng đọc
+ */
+router.get("/voicevox/status", getVoicevoxStatus);
+
+// -------------------------------------------------------------
+// Protected practice endpoints (Yêu cầu đăng nhập & tính quota)
+// -------------------------------------------------------------
 router.use(protectedRoute);
 
 /**
  * POST /api/v1/practices/process-voice
- * Middleware chain:
- * 1. protectedRoute (check token)
- * 2. checkPracticeQuota (verify Free <= 2/day or Premium unlimited)
- * 3. handleAudioUpload("audio") (parse audio file via multer)
- * 4. processVoice (Upload cloud -> STT Azure/Whisper -> LLM 4 criteria assessment)
+ * Chấm điểm phát âm tiếng Nhật 4 tiêu chí (Phát âm, Lưu loát, Ngữ pháp, Từ vựng)
  */
 router.post("/process-voice", checkPracticeQuota, handleAudioUpload("audio"), processVoice);
 
 /**
  * POST /api/v1/practices/roleplay-chat
- * Real-time freeform roleplay conversational AI partner
+ * Hội thoại tương tác trực tiếp với gia sư AI
  */
 router.post("/roleplay-chat", aiRoleplayChat);
 
 /**
- * POST /api/v1/practices/text-to-speech
- * Tạo giọng phát âm tiếng Nhật từ văn bản (Google Cloud TTS)
+ * POST /api/v1/practices/roleplay-suggestions
+ * Tạo gợi ý câu đối đáp theo ngữ cảnh thực tế bằng AI
  */
-router.post("/text-to-speech", synthesizeVoice);
+router.post("/roleplay-suggestions", getRoleplaySuggestions);
 
 /**
  * POST /api/v1/practices/save

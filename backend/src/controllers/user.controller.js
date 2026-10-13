@@ -36,5 +36,114 @@ export const updateProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * PATCH /api/v1/users/change-password
+ */
+export const changePassword = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { currentPassword, newPassword } = req.body;
+
+    await UserService.changePassword(userId, currentPassword, newPassword);
+
+    return successResponse(res, null, "Đổi mật khẩu thành công! Hãy ghi nhớ mật khẩu mới của bạn.");
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/users/leaderboard
+ */
+export const getLeaderboard = async (req, res, next) => {
+  try {
+    const type = req.query.type || "xp"; // "xp" | "streak"
+    const timeframe = req.query.timeframe || "all"; // "all" | "week" | "month"
+    const limit = parseInt(req.query.limit, 10) || 25;
+    const currentUserId = req.user?._id;
+
+    const data = await UserService.getLeaderboard({
+      type,
+      timeframe,
+      limit,
+      currentUserId,
+    });
+
+    return successResponse(res, data, "Lấy bảng xếp hạng thành công!");
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/users/claim-quest
+ * Claims daily or weekly quest XP reward and saves to user document
+ */
+export const claimQuest = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { questId, xpReward, questType, date } = req.body;
+
+    const result = await UserService.claimQuestReward({
+      userId,
+      questId,
+      xpReward,
+      questType: questType || "daily",
+      clientDate: date || null,
+    });
+
+    return res.status(200).json({
+      success: result.success,
+      message: result.message,
+      data: result,
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/users/buy-streak-freeze
+ * Purchases a streak freeze equipped shield using 100 XP
+ */
+export const buyStreakFreeze = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const result = await UserService.buyStreakFreeze(userId);
+    return successResponse(res, result, result.message);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/users/claim-practice-bonus
+ * Practice-to-Earn: Claims +1 speaking practice quota after reviewing 5 flashcards
+ */
+export const claimPracticeBonus = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const result = await UserService.claimPracticeBonus(userId);
+    return successResponse(res, result, result.message);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/users/onboarding-quiz
+ * Submits Onboarding Placement Quiz answers and rewards +50 XP
+ */
+export const completeOnboardingQuiz = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const result = await UserService.completeOnboardingQuiz(userId, req.body);
+    return successResponse(res, result, result.message);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Aliases for compatibility
 export const authMe = getMe;

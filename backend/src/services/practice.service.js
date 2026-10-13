@@ -2,10 +2,11 @@ import mongoose from "mongoose";
 import Practice from "../models/Practice.js";
 import Lesson from "../models/Lesson.js";
 import User from "../models/User.js";
+import StudyLog from "../models/StudyLog.js";
 import StorageService from "./storage.service.js";
 import AiService from "./ai.service.js";
 import StudyLogService from "./studylog.service.js";
-import { calculateNewStreak } from "../utils/dateUtils.js";
+import { calculateNewStreak, getTodayDateString } from "../utils/dateUtils.js";
 
 export class PracticeService {
   /**
@@ -50,7 +51,18 @@ export class PracticeService {
       transcript = await AiService.speechToText(fileBuffer, mimeType, targetSentence);
     }
     if (!transcript) {
-      transcript = targetSentence || "";
+      return {
+        audioUrl,
+        transcript: "",
+        targetSentence,
+        scores: { pronunciation: 0, accuracy: 0, fluency: 0, completeness: 0 },
+        overallScore: 0,
+        wordFeedback: [],
+        feedback: {
+          grammarSuggestions: ["Chưa nhận diện được giọng nói."],
+          generalAdvice: "Vui lòng bấm nút Micro và đọc to, rõ ràng câu tiếng Nhật mẫu nhé.",
+        },
+      };
     }
 
     // Step C: LLM Multi-Criteria Assessment (OpenAI / Claude)
@@ -169,12 +181,16 @@ export class PracticeService {
         user.dailyUsage?.date === todayStr ? user.dailyUsage.practiceCount || 0 : 0;
       userUsedToday = currentDailyPractices + 1;
 
+      const newTotalXp = (user.gamification?.totalXp || 0) + xpEarned;
+      const newLevel = Math.max(1, Math.floor(newTotalXp / 100) + 1);
+
       user.gamification = {
         ...user.gamification,
         streak: streakResult.newStreak,
         longestStreak: streakResult.newLongestStreak,
         lastActiveDate: new Date(),
-        totalXp: (user.gamification?.totalXp || 0) + xpEarned,
+        totalXp: newTotalXp,
+        level: newLevel,
       };
 
       user.dailyUsage = {
@@ -284,8 +300,8 @@ export class PracticeService {
     if (lessonId && mongoose.Types.ObjectId.isValid(lessonId)) {
       const lesson = await Lesson.findById(lessonId);
       if (lesson) {
-        finalTitle = lesson.title || finalTitle;
-        finalLevel = lesson.level || finalLevel;
+        finalTitle = scenarioTitle || lesson.title || finalTitle;
+        finalLevel = level || lesson.level || finalLevel;
       }
     }
 
@@ -297,6 +313,38 @@ export class PracticeService {
     });
 
     return aiResult;
+  }
+
+  /**
+   * 6. Handle Freeform AI Roleplay Contextual Suggestions
+   */
+  static async handleRoleplaySuggestions({
+    userId,
+    lessonId,
+    scenarioTitle,
+    level = "N5",
+    aiMessage = "",
+    conversationHistory = [],
+  }) {
+    let finalTitle = scenarioTitle || "Luyện nói tự do với AI";
+    let finalLevel = level;
+
+    if (lessonId && mongoose.Types.ObjectId.isValid(lessonId)) {
+      const lesson = await Lesson.findById(lessonId);
+      if (lesson) {
+        finalTitle = scenarioTitle || lesson.title || finalTitle;
+        finalLevel = level || lesson.level || finalLevel;
+      }
+    }
+
+    const result = await AiService.generateRoleplaySuggestions({
+      scenarioTitle: finalTitle,
+      level: finalLevel,
+      aiMessage,
+      conversationHistory,
+    });
+
+    return result;
   }
 }
 

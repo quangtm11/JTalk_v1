@@ -4,6 +4,8 @@ import { usePracticeStore } from "@/stores/usePracticeStore";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { practiceService } from "@/services/practice.service";
 import { useAudioRecorder } from "./useAudioRecorder";
+import { formatJapaneseForSpeech } from "@/utils/japanesePhrasing";
+import { soundEffects } from "@/utils/soundEffects";
 import type { ProcessVoiceResponse, SavePracticeResponse } from "@/types";
 
 // Type definitions for Web Speech API
@@ -55,43 +57,67 @@ const generateFallbackEvaluation = (
     .map((w) => w.trim())
     .filter((w) => w.length > 0 && !/^[、。！？!?,.\s~…-]+$/.test(w));
 
+  if (!cleanTranscript) {
+    return {
+      transcript: "",
+      targetSentence,
+      scores: { pronunciation: 0, accuracy: 0, fluency: 0, completeness: 0 },
+      overallScore: 0,
+      wordFeedback: words.map((word) => ({
+        word,
+        isCorrect: false,
+        accuracyScore: 0,
+        errorType: "omission" as const,
+        suggestion: `Chưa nhận diện được âm "${word}"`,
+      })),
+      feedback: {
+        grammarSuggestions: ["Chưa nhận diện được giọng nói."],
+        generalAdvice:
+          "Vui lòng bấm nút Micro và đọc to, rõ ràng câu tiếng Nhật mẫu nhé.",
+      },
+    };
+  }
+
   const wordFeedback = words.map((word) => {
     const cleanWord = word.replace(/[、。！？!?,.\s~…-]/g, "").toLowerCase();
     const isMatched =
       cleanTranscript.includes(cleanWord) ||
-      (cleanFurigana.length > 0 && cleanTranscript.includes(cleanFurigana)) ||
-      (cleanTranscript.length > 0 && cleanTranscript.length >= cleanWord.length);
+      (cleanFurigana.length > 0 && cleanTranscript.includes(cleanFurigana));
 
     return {
       word,
       isCorrect: isMatched,
-      accuracyScore: isMatched ? 95 : 55,
+      accuracyScore: isMatched ? 95 : 50,
       errorType: isMatched ? ("none" as const) : ("mispronunciation" as const),
-      suggestion: isMatched ? undefined : `Phát âm rõ hơn âm "${word}"`,
+      suggestion: isMatched ? undefined : `Luyện phát âm rõ hơn âm "${word}"`,
     };
   });
 
   const correctCount = wordFeedback.filter((w) => w.isCorrect).length;
-  const ratio = wordFeedback.length > 0 ? correctCount / wordFeedback.length : 0.85;
-  const baseScore = Math.min(95, Math.max(65, Math.round(ratio * 90 + 10)));
+  const ratio = words.length > 0 ? correctCount / words.length : 0.85;
+  const baseScore = Math.min(98, Math.max(40, Math.round(ratio * 90 + 8)));
 
   return {
-    transcript: userTranscript || targetSentence,
+    transcript: userTranscript,
     targetSentence,
     scores: {
       pronunciation: baseScore,
-      accuracy: Math.min(100, baseScore + 3),
-      fluency: Math.max(60, baseScore - 4),
-      completeness: Math.min(100, baseScore + 2),
+      accuracy: Math.min(100, Math.max(30, Math.round(ratio * 100))),
+      fluency: Math.max(50, baseScore - 3),
+      completeness: Math.min(100, Math.max(30, Math.round(ratio * 100))),
     },
     overallScore: baseScore,
     wordFeedback,
     feedback: {
       grammarSuggestions: [
-        "Trợ từ và ngữ điệu câu tự nhiên, phù hợp với ngữ cảnh giao tiếp.",
+        ratio >= 0.8
+          ? "Trợ từ và ngữ điệu câu tự nhiên, rất tốt!"
+          : "Chú ý phát âm rõ ràng đầy đủ các trợ từ và âm tiết trong câu.",
       ],
       generalAdvice:
-        "Phát âm rõ ràng, nhịp điệu tương đối chuẩn. Hãy tiếp tục luyện phản xạ để nói mượt mà hơn nhé!",
+        ratio >= 0.8
+          ? "Phát âm rất rõ ràng và chuẩn xác. Hãy tiếp tục duy trì phong độ!"
+          : "Hãy nghe lại câu mẫu bản xứ và luyện đọc đuổi (shadowing) để cải thiện độ chuẩn xác nhé.",
     },
   };
 };
@@ -102,10 +128,13 @@ export const usePracticeSession = () => {
   const recorder = useAudioRecorder();
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [speechRecognitionSupported, setSpeechRecognitionSupported] = useState(false);
   const speechRecognitionRef = useRef<IWindowSpeechRecognition | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const finalTranscriptRef = useRef<string>("");
+  const isRecordingRef = useRef<boolean>(false);
 
   // Helper to stop all playing audio immediately (SpeechSynthesis + HTMLAudioElement)
   const stopAudio = useCallback(() => {
@@ -121,6 +150,8 @@ export const usePracticeSession = () => {
       } catch (_) {}
       audioElementRef.current = null;
     }
+    currentUtteranceRef.current = null;
+    setIsLoadingAudio(false);
     setIsPlayingAudio(false);
   }, []);
 
@@ -131,16 +162,24 @@ export const usePracticeSession = () => {
     };
   }, [stopAudio]);
 
-  // Check Web Speech API availability
+  // Check Web Speech API availability & warm up speech synthesis voices
   useEffect(() => {
     const SpeechRecognitionClass =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognitionClass) {
       setSpeechRecognitionSupported(true);
     }
+
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const loadVoices = () => {
+        window.speechSynthesis.getVoices();
+      };
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+      loadVoices();
+    }
   }, []);
 
-  // Play audio for current dialogue sentence (TTS)
+  // Play audio for current dialogue sentence (Edge TTS -> Pre-recorded -> Browser SpeechSynthesis Fallback)
   const playNativeAudio = useCallback(async (text?: string) => {
     stopAudio();
 
@@ -150,56 +189,120 @@ export const usePracticeSession = () => {
 
     if (!sentenceToPlay) return;
 
+    setIsLoadingAudio(true);
     setIsPlayingAudio(true);
 
-    // 1. First try browser native SpeechSynthesis (0ms latency, zero bandwidth)
+    // 1. If static pre-rendered audioUrl exists, play directly for instant 0ms latency
+    const preRecordedUrl = !text && currentDialogue?.audioUrl ? currentDialogue.audioUrl : null;
+    if (preRecordedUrl) {
+      try {
+        const audio = new Audio(preRecordedUrl);
+        audioElementRef.current = audio;
+        audio.onended = () => {
+          setIsLoadingAudio(false);
+          setIsPlayingAudio(false);
+          audioElementRef.current = null;
+        };
+        audio.onerror = () => {
+          setIsLoadingAudio(false);
+          setIsPlayingAudio(false);
+          audioElementRef.current = null;
+        };
+        await audio.play();
+        setIsLoadingAudio(false);
+        return;
+      } catch (err) {
+        console.warn("Pre-recorded audio playback error, falling through to Edge TTS:", err);
+      }
+    }
+
+    // 2. Primary Studio Engine: Microsoft Edge Neural TTS with 2.5s client timeout race
+    try {
+      const ttsPromise = practiceService.synthesizeVoice(
+        sentenceToPlay,
+        "ja-JP-NanamiNeural",
+        "FEMALE",
+        0.95
+      );
+      const timeoutPromise = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error("Client TTS timeout (2.5s)")), 2500)
+      );
+
+      const ttsData = (await Promise.race([ttsPromise, timeoutPromise])) as any;
+
+      if (ttsData?.audioContent) {
+        const mimeType = ttsData.mimeType || "audio/mp3";
+        const audio = new Audio(`data:${mimeType};base64,${ttsData.audioContent}`);
+        audioElementRef.current = audio;
+        audio.onended = () => {
+          setIsLoadingAudio(false);
+          setIsPlayingAudio(false);
+          audioElementRef.current = null;
+        };
+        audio.onerror = () => {
+          setIsLoadingAudio(false);
+          setIsPlayingAudio(false);
+          audioElementRef.current = null;
+        };
+        await audio.play();
+        setIsLoadingAudio(false);
+        return;
+      }
+    } catch (edgeErr) {
+      console.warn("Backend Edge TTS error or timeout, falling back to local SpeechSynthesis:", edgeErr);
+    }
+
+    // 3. Resilient Offline Fallback: Browser SpeechSynthesis with Bunsetsu phrasing pauses
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(sentenceToPlay);
-        utterance.lang = "ja-JP";
-        utterance.rate = 0.9; // Slightly slower for clear Japanese learner comprehension
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
 
-        // Try to pick native Japanese voice if available
+        const naturalPhrasedText = formatJapaneseForSpeech(sentenceToPlay);
+        const utterance = new SpeechSynthesisUtterance(naturalPhrasedText);
+        utterance.lang = "ja-JP";
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+
+        // Prevent Chrome GC from prematurely canceling audio
+        currentUtteranceRef.current = utterance;
+        (window as unknown as { __jtalkUtterance: SpeechSynthesisUtterance }).__jtalkUtterance = utterance;
+
+        // Pick Japanese voice if available on user device
         const voices = window.speechSynthesis.getVoices();
         const jaVoice = voices.find(
-          (v) => v.lang.startsWith("ja") || v.lang.includes("JP")
+          (v) =>
+            v.lang === "ja-JP" ||
+            v.lang.startsWith("ja") ||
+            v.lang.includes("JP") ||
+            v.name.toLowerCase().includes("japanese")
         );
         if (jaVoice) {
           utterance.voice = jaVoice;
         }
 
-        utterance.onend = () => setIsPlayingAudio(false);
-        utterance.onerror = () => setIsPlayingAudio(false);
+        utterance.onend = () => {
+          setIsLoadingAudio(false);
+          setIsPlayingAudio(false);
+          currentUtteranceRef.current = null;
+        };
+        utterance.onerror = () => {
+          setIsLoadingAudio(false);
+          setIsPlayingAudio(false);
+          currentUtteranceRef.current = null;
+        };
 
         window.speechSynthesis.speak(utterance);
+        setIsLoadingAudio(false);
         return;
       } catch (e) {
-        console.warn("SpeechSynthesis error, falling back to backend TTS:", e);
+        console.warn("Browser SpeechSynthesis fallback error:", e);
       }
     }
 
-    // 2. Fallback: Call Google Cloud TTS backend endpoint
-    try {
-      const ttsData = await practiceService.synthesizeVoice(sentenceToPlay);
-      if (ttsData?.audioContent) {
-        const audio = new Audio(`data:audio/mp3;base64,${ttsData.audioContent}`);
-        audioElementRef.current = audio;
-        audio.onended = () => {
-          setIsPlayingAudio(false);
-          audioElementRef.current = null;
-        };
-        audio.onerror = () => {
-          setIsPlayingAudio(false);
-          audioElementRef.current = null;
-        };
-        await audio.play();
-        return;
-      }
-    } catch (e) {
-      console.error("Backend TTS synthesis error:", e);
-    }
-
+    setIsLoadingAudio(false);
     setIsPlayingAudio(false);
   }, [store.dialogues, store.currentDialogueIndex, store.currentLesson, stopAudio]);
 
@@ -217,20 +320,30 @@ export const usePracticeSession = () => {
       0;
     const currentUsed = Math.max(userCount, authStore.dailyPracticeCount);
 
-    if (!isPremium && currentUsed >= 2) {
+    const freeLimit =
+      typeof authStore.user?.quota?.limit === "number" ? authStore.user.quota.limit : 5;
+
+    if (!isPremium && currentUsed >= freeLimit) {
       store.setQuotaExceeded(true);
       toast.error(
-        "Bạn đã dùng hết 2 lượt luyện nói miễn phí trong ngày. Vui lòng nâng cấp Premium để tiếp tục!"
+        `Bạn đã dùng hết ${freeLimit} lượt luyện nói miễn phí trong ngày. Vui lòng nâng cấp Premium để tiếp tục!`
       );
       return;
     }
 
+    store.setIsEvaluating(false);
     store.setErrorMessage(null);
     store.setClientTranscript("");
     finalTranscriptRef.current = "";
 
     // 1. Start audio recorder for waveform & audio file
-    await recorder.startRecording();
+    const micStarted = await recorder.startRecording();
+    if (!micStarted) {
+      isRecordingRef.current = false;
+      store.setIsRecording(false);
+      return;
+    }
+    isRecordingRef.current = true;
     store.setIsRecording(true);
 
     // 2. Start Web Speech API in parallel (if available) for instant live transcript
@@ -259,11 +372,24 @@ export const usePracticeSession = () => {
         };
 
         recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-          console.warn("Web Speech API recognition error:", event.error);
+          console.warn("Web Speech API recognition notice:", event.error);
+          if (event.error === "not-allowed") {
+            toast.error("Vui lòng cấp quyền truy cập Microphone trong trình duyệt để luyện nói.");
+            isRecordingRef.current = false;
+            store.setIsRecording(false);
+          }
+          // Non-fatal errors like 'no-speech' are ignored while user is speaking
         };
 
         recognition.onend = () => {
-          speechRecognitionRef.current = null;
+          // If user is still actively recording, restart recognition to prevent Chrome timeout
+          if (isRecordingRef.current) {
+            try {
+              recognition.start();
+            } catch (_) {}
+          } else {
+            speechRecognitionRef.current = null;
+          }
         };
 
         speechRecognitionRef.current = recognition;
@@ -276,6 +402,8 @@ export const usePracticeSession = () => {
 
   // Stop Speaking & Evaluate AI Reflex
   const stopAndEvaluate = useCallback(async (): Promise<ProcessVoiceResponse | null> => {
+    isRecordingRef.current = false;
+
     // 1. Stop SpeechRecognition
     if (speechRecognitionRef.current) {
       try {
@@ -290,7 +418,6 @@ export const usePracticeSession = () => {
     store.setAudioData(recordResult.blob, recordResult.url, recordResult.duration);
 
     // 3. Prepare sentence & transcript
-    // ALWAYS prioritize the exact Japanese sentence displayed to the user on screen!
     const currentDialogue = store.dialogues[store.currentDialogueIndex];
     const targetSentence =
       currentDialogue?.japanese ||
@@ -304,124 +431,151 @@ export const usePracticeSession = () => {
       finalTranscriptRef.current?.trim() ||
       "";
 
+    // Guard: If no voice was captured at all, avoid false 0% evaluation
+    if (!transcript && (!recordResult.blob || recordResult.blob.size < 500)) {
+      store.setIsRecording(false);
+      store.setIsEvaluating(false);
+      toast.warning("Chưa ghi nhận được giọng nói. Bạn vui lòng bấm nút Micro và đọc to câu tiếng Nhật mẫu nhé!");
+      return null;
+    }
+
     store.setIsEvaluating(true);
 
-    let evalResult: ProcessVoiceResponse | null = null;
-
     try {
-      evalResult = await practiceService.processVoice({
-        lessonId: store.currentLesson?._id,
-        sampleSentence: targetSentence,
-        transcript: transcript || undefined,
-        audioBlob: recordResult.blob && recordResult.blob.size > 0 ? recordResult.blob : undefined,
-        audioBase64: recordResult.base64 || undefined,
-      });
-    } catch (err: unknown) {
-      const errorObj = err as {
-        response?: {
-          status?: number;
-          data?: {
-            message?: string;
-            data?: { quotaExceeded?: boolean };
-          };
-        };
-        message?: string;
-      };
+      let evalResult: ProcessVoiceResponse | null = null;
 
-      const isQuota =
-        errorObj.response?.status === 403 &&
-        (errorObj.response?.data?.data?.quotaExceeded ||
-          errorObj.response?.data?.message?.includes("lượt luyện nói"));
-
-      if (isQuota) {
-        store.setQuotaExceeded(true);
-        toast.error("Bạn đã dùng hết 2 lượt luyện nói miễn phí trong ngày!");
-        return null;
-      }
-
-      console.warn("Backend processVoice failed, using intelligent local evaluation:", err);
-      evalResult = generateFallbackEvaluation(
-        targetSentence,
-        transcript,
-        currentDialogue?.furigana
-      );
-    }
-
-    if (evalResult) {
-      // Guarantee that targetSentence and transcript on the evaluation ALWAYS match what the user saw and spoke
-      const finalEvalResult: ProcessVoiceResponse = {
-        ...evalResult,
-        targetSentence: targetSentence || evalResult.targetSentence,
-        transcript: transcript || evalResult.transcript || targetSentence,
-      };
-
-      store.setCurrentEvaluation(finalEvalResult);
-
-      // QUAN TRỌNG: Cập nhật tăng số lượt luyện tập hôm nay ngay lập tức trên UI và LocalStorage
-      authStore.incrementDailyPracticeCount();
-
-      // Kiểm tra nếu chạm hạn mức 2 lượt sau lượt nói này
-      const isPremium = authStore.user?.subscription?.tier === "premium";
-      const nowUsed = Math.max(
-        authStore.user?.dailyUsage?.practiceCount ?? 0,
-        authStore.dailyPracticeCount
-      );
-      if (!isPremium && nowUsed >= 2) {
-        store.setQuotaExceeded(true);
-      }
-
-      // Auto-save practice to database
       try {
-        store.setIsSaving(true);
-        const saveRes: SavePracticeResponse = await practiceService.savePractice({
-          lessonId: store.currentLesson?._id || "",
+        evalResult = await practiceService.processVoice({
+          lessonId: store.currentLesson?._id,
           sampleSentence: targetSentence,
-          transcript: evalResult.transcript || transcript,
-          scores: evalResult.scores,
-          overallScore: evalResult.overallScore,
-          wordFeedback: evalResult.wordFeedback,
-          feedback: evalResult.feedback,
-          durationSeconds: recordResult.duration || 10,
-          audioUrl: evalResult.audioUrl || recordResult.url,
+          transcript: transcript || undefined,
+          audioBlob: recordResult.blob && recordResult.blob.size > 0 ? recordResult.blob : undefined,
+          audioBase64: recordResult.base64 || undefined,
         });
+      } catch (err: unknown) {
+        const errorObj = err as {
+          response?: {
+            status?: number;
+            data?: {
+              message?: string;
+              data?: { quotaExceeded?: boolean };
+            };
+          };
+          message?: string;
+        };
 
-        store.setRecentSavedPractice(saveRes.practice);
+        const isQuota =
+          errorObj.response?.status === 403 &&
+          (errorObj.response?.data?.data?.quotaExceeded ||
+            errorObj.response?.data?.message?.includes("lượt luyện nói"));
 
-        // Update gamification in auth store
-        if (saveRes.gamification) {
-          authStore.updateUserGamification({
-            streak: saveRes.gamification.streak,
-            longestStreak: saveRes.gamification.longestStreak,
-          });
-
-          if (saveRes.gamification.isStreakIncremented) {
-            toast.success(`🔥 Streak tăng lên ${saveRes.gamification.streak} ngày liên tiếp!`);
-          }
+        if (isQuota) {
+          store.setQuotaExceeded(true);
+          const freeLimit =
+            typeof authStore.user?.quota?.limit === "number" ? authStore.user.quota.limit : 5;
+          toast.error(`Bạn đã dùng hết ${freeLimit} lượt luyện nói miễn phí trong ngày!`);
+          return null;
         }
 
-        // Đồng bộ quota từ server nếu có
-        if (saveRes.quota && typeof saveRes.quota.usedToday === "number") {
-          authStore.updateUserDailyUsage({
-            practiceCount: saveRes.quota.usedToday,
-          });
-        }
-      } catch (saveError) {
-        console.warn("Auto-save practice notice (guest / offline):", saveError);
-      } finally {
-        store.setIsSaving(false);
+        console.warn("Backend processVoice failed, using intelligent local evaluation:", err);
+        evalResult = generateFallbackEvaluation(
+          targetSentence,
+          transcript,
+          currentDialogue?.furigana
+        );
       }
 
-      return evalResult;
-    }
+      if (evalResult) {
+        // Guarantee that targetSentence and transcript on the evaluation ALWAYS match what the user saw and spoke
+        const finalEvalResult: ProcessVoiceResponse = {
+          ...evalResult,
+          targetSentence: targetSentence || evalResult.targetSentence,
+          transcript: transcript || evalResult.transcript || "",
+        };
 
-    return null;
+        store.setCurrentEvaluation(finalEvalResult);
+
+        // Khen thưởng âm thanh tức thì (Web Audio API) mô phỏng Duolingo/ELSA
+        try {
+          if (finalEvalResult.overallScore >= 80) {
+            soundEffects.playSuccess();
+          } else if (finalEvalResult.overallScore >= 60) {
+            soundEffects.playGood();
+          } else {
+            soundEffects.playEncourage();
+          }
+        } catch (_) {}
+
+        // QUAN TRỌNG: Cập nhật tăng số lượt luyện tập hôm nay ngay lập tức trên UI và LocalStorage
+        authStore.incrementDailyPracticeCount();
+
+        // Kiểm tra nếu chạm hạn mức lượt miễn phí sau lượt nói này
+        const isPremium = authStore.user?.subscription?.tier === "premium";
+        const nowUsed = Math.max(
+          authStore.user?.dailyUsage?.practiceCount ?? 0,
+          authStore.dailyPracticeCount
+        );
+        const freeLimit =
+          typeof authStore.user?.quota?.limit === "number" ? authStore.user.quota.limit : 5;
+        if (!isPremium && nowUsed >= freeLimit) {
+          store.setQuotaExceeded(true);
+        }
+
+        // Auto-save practice to database
+        try {
+          store.setIsSaving(true);
+          const saveRes: SavePracticeResponse = await practiceService.savePractice({
+            lessonId: store.currentLesson?._id || "",
+            sampleSentence: targetSentence,
+            transcript: evalResult.transcript || transcript,
+            scores: evalResult.scores,
+            overallScore: evalResult.overallScore,
+            wordFeedback: evalResult.wordFeedback,
+            feedback: evalResult.feedback,
+            durationSeconds: recordResult.duration || 10,
+            audioUrl: evalResult.audioUrl || recordResult.url,
+          });
+
+          store.setRecentSavedPractice(saveRes.practice);
+
+          // Update gamification in auth store
+          if (saveRes.gamification) {
+            authStore.updateUserGamification({
+              streak: saveRes.gamification.streak,
+              longestStreak: saveRes.gamification.longestStreak,
+            });
+
+            if (saveRes.gamification.isStreakIncremented) {
+              toast.success(`Streak tăng lên ${saveRes.gamification.streak} ngày liên tiếp!`);
+            }
+          }
+
+          // Đồng bộ quota từ server nếu có
+          if (saveRes.quota && typeof saveRes.quota.usedToday === "number") {
+            authStore.updateUserDailyUsage({
+              practiceCount: saveRes.quota.usedToday,
+            });
+          }
+        } catch (saveError) {
+          console.warn("Auto-save practice notice (guest / offline):", saveError);
+        } finally {
+          store.setIsSaving(false);
+        }
+
+        return evalResult;
+      }
+
+      return null;
+    } finally {
+      store.setIsEvaluating(false);
+    }
   }, [recorder, store, authStore]);
 
   return {
     ...store,
     recorder,
     isPlayingAudio,
-    speechRecognitionSupported,
+    isLoadingAudio,
     playNativeAudio,
     stopAudio,
     startSpeaking,

@@ -1,13 +1,34 @@
 import axios from "axios";
 import { useAuthStore } from "@/stores/useAuthStore";
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.MODE === "development" ? "http://localhost:5001/api/v1" : "/api/v1");
+const getNormalizedApiUrl = (): string => {
+  let url =
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.VITE_API_URL ||
+    (typeof window !== "undefined" && (window as any).__ENV__?.VITE_API_URL) ||
+    "http://localhost:5001/api/v1";
+
+  // Remove trailing slashes
+  url = url.trim().replace(/\/+$/, "");
+
+  // If the URL is absolute (http/https) and missing /api/v1 or /api prefix, auto-append /api/v1
+  if (
+    (url.startsWith("http://") || url.startsWith("https://")) &&
+    !url.endsWith("/api/v1") &&
+    !url.endsWith("/api")
+  ) {
+    url = `${url}/api/v1`;
+  }
+
+  return url;
+};
+
+export const API_BASE_URL = getNormalizedApiUrl();
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
+  timeout: 45000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -45,7 +66,7 @@ api.interceptors.response.use(
 
     const status = error.response?.status;
 
-    if ((status === 401 || status === 403) && !originalRequest._retry) {
+    if (status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {

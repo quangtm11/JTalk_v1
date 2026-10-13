@@ -6,15 +6,18 @@ export const authService = {
     password: string,
     email: string,
     firstName: string,
-    lastName: string
+    lastName: string,
+    displayName?: string
   ) => {
     const res = await api.post(
       "/auth/signup",
-      { username, password, email, firstName, lastName },
+      { username, password, email, firstName, lastName, displayName },
       { withCredentials: true }
     );
 
-    return res.data;
+    const accessToken = res.data?.accessToken || res.data?.data?.accessToken;
+    const user = res.data?.user || res.data?.data?.user;
+    return { accessToken, user, ...res.data };
   },
 
   signIn: async (username: string, password: string) => {
@@ -23,7 +26,27 @@ export const authService = {
       { username, password },
       { withCredentials: true }
     );
-    return res.data; // access token
+    const accessToken = res.data?.accessToken || res.data?.data?.accessToken;
+    const user = res.data?.user || res.data?.data?.user;
+    return { accessToken, user, ...res.data };
+  },
+
+  forgotPassword: async (emailOrUsername: string) => {
+    const res = await api.post(
+      "/auth/forgot-password",
+      { emailOrUsername },
+      { withCredentials: true }
+    );
+    return res.data;
+  },
+
+  resetPassword: async (emailOrUsername: string, resetCode: string, newPassword: string) => {
+    const res = await api.post(
+      "/auth/reset-password",
+      { emailOrUsername, resetCode, newPassword },
+      { withCredentials: true }
+    );
+    return res.data;
   },
 
   signOut: async () => {
@@ -36,7 +59,7 @@ export const authService = {
   },
 
   refresh: async () => {
-    const res = await api.post("/auth/refresh", { withCredentials: true });
-    return res.data.accessToken;
+    const res = await api.post("/auth/refresh", {}, { withCredentials: true });
+    return res.data?.accessToken || res.data?.data?.accessToken;
   },
 };

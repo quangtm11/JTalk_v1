@@ -1,5 +1,7 @@
 import PracticeService from "../services/practice.service.js";
 import AiService from "../services/ai.service.js";
+import VoicevoxService from "../services/voicevox.service.js";
+import EdgeTtsService, { EDGE_JAPANESE_VOICES } from "../services/edgeTts.service.js";
 import Practice from "../models/Practice.js";
 import { successResponse, errorResponse, paginatedResponse } from "../utils/apiResponse.js";
 import mongoose from "mongoose";
@@ -57,16 +59,26 @@ export const processVoice = async (req, res, next) => {
 
 /**
  * POST /api/v1/practices/text-to-speech
- * Generates native Japanese audio using Google Cloud Text-to-Speech
+ * Generates natural Japanese studio audio using Microsoft Edge Neural TTS (with OpenAI/Google fallback)
  */
 export const synthesizeVoice = async (req, res, next) => {
   try {
-    const { text, voiceName, gender } = req.body;
-    if (!text) {
+    const { text, voiceName, gender, rate, speedScale, pitchScale } = req.body;
+    if (!text || !text.trim()) {
       return errorResponse(res, "Vui lòng cung cấp văn bản tiếng Nhật (text).", 400);
     }
 
-    const result = await AiService.textToSpeechWithGoogle(text, voiceName, gender);
+    let selectedVoice = voiceName;
+    if (!selectedVoice && gender) {
+      selectedVoice = gender === "MALE" ? EDGE_JAPANESE_VOICES.KEITA : EDGE_JAPANESE_VOICES.NANAMI;
+    }
+
+    const result = await EdgeTtsService.synthesize({
+      text,
+      voice: selectedVoice,
+      rate: rate || speedScale || 0.95,
+      pitch: pitchScale || 0,
+    });
 
     return successResponse(res, result, "Tạo giọng phát âm tiếng Nhật thành công!");
   } catch (error) {
@@ -292,4 +304,122 @@ export const aiRoleplayChat = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * POST /api/v1/practices/roleplay-suggestions
+ * Generates dynamic, context-aware suggestions for learners to respond to AI
+ */
+export const getRoleplaySuggestions = async (req, res, next) => {
+  try {
+    const userId = req.user?._id;
+    const { lessonId, scenarioTitle, level, aiMessage, conversationHistory } = req.body;
+
+    const result = await PracticeService.handleRoleplaySuggestions({
+      userId,
+      lessonId,
+      scenarioTitle,
+      level,
+      aiMessage,
+      conversationHistory,
+    });
+
+    return successResponse(res, result, "Tạo gợi ý câu đối đáp thành công!");
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/practices/voicevox
+ * Synthesizes studio-grade native Japanese audio via Voicevox Engine (Local)
+ * with transparent auto-fallback to Microsoft Edge Neural TTS on Web Production.
+ */
+export const synthesizeVoicevox = async (req, res, next) => {
+  try {
+    const { text, speakerId, speedScale, pitchScale } = req.body;
+    if (!text || !text.trim()) {
+      return errorResponse(res, "Vui lòng cung cấp văn bản tiếng Nhật (text).", 400);
+    }
+
+    // 1. Try Voicevox Local Engine first (if developer is running desktop app)
+    const result = await VoicevoxService.synthesize({
+      text,
+      speakerId: speakerId !== undefined && speakerId !== null ? parseInt(speakerId, 10) : undefined,
+      speedScale: speedScale !== undefined ? parseFloat(speedScale) : 0.95,
+      pitchScale: pitchScale !== undefined ? parseFloat(pitchScale) : 0.0,
+    });
+
+    if (result && result.audioContent) {
+      return successResponse(res, result, "Tạo giọng phát âm Voicevox thành công!");
+    }
+
+    // 2. Seamless Cloud Production Fallback: Microsoft Edge Neural TTS
+    // Automatically map legacy speakerId to studio-grade Japanese voice
+    const edgeVoice = EdgeTtsService.mapVoicevoxSpeakerToEdge(speakerId);
+    const edgeResult = await EdgeTtsService.synthesize({
+      text,
+      voice: edgeVoice,
+      rate: speedScale !== undefined ? parseFloat(speedScale) : 0.95,
+      pitch: pitchScale !== undefined ? parseFloat(pitchScale) : 0.0,
+    });
+
+    return successResponse(
+      res,
+      {
+        ...edgeResult,
+        speakerId: speakerId ?? 2,
+        isFallback: true,
+      },
+      "Tạo giọng phát âm tiếng Nhật thành công (Microsoft Edge Neural Engine)!"
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/practices/voicevox/status
+ * Returns health status and available speakers of Voicevox & Edge TTS Engines
+ */
+export const getVoicevoxStatus = async (req, res, next) => {
+  try {
+    const health = await VoicevoxService.checkHealth();
+    const voicevoxSpeakers = health.isOnline ? await VoicevoxService.getSpeakers() : [];
+
+    const edgeSpeakers = [
+      {
+        name: "七海 (Nanami) - Chuẩn Tokyo (Khuyên dùng)",
+        speaker_uuid: "edge-ja-jp-nanami",
+        styles: [{ id: 2, name: "Giáo viên Nữ bản ngữ" }],
+        voice: EDGE_JAPANESE_VOICES.NANAMI,
+      },
+      {
+        name: "圭太 (Keita) - Chuẩn Tokyo",
+        speaker_uuid: "edge-ja-jp-keita",
+        styles: [{ id: 13, name: "Nam công sở & Hội thoại" }],
+        voice: EDGE_JAPANESE_VOICES.KEITA,
+      },
+      {
+        name: "葵 (Aoi) - Tự nhiên, dễ thương",
+        speaker_uuid: "edge-ja-jp-aoi",
+        styles: [{ id: 3, name: "Nữ trẻ trung" }],
+        voice: EDGE_JAPANESE_VOICES.AOI,
+      },
+    ];
+
+    return successResponse(
+      res,
+      {
+        ...health,
+        speakers: health.isOnline ? voicevoxSpeakers : edgeSpeakers,
+        edgeSpeakers,
+        edgeTtsActive: true,
+      },
+      "Kiểm tra trạng thái Voice TTS Engine hoàn tất!"
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 

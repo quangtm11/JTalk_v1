@@ -8,12 +8,26 @@ export interface UserProfile {
   dailyTargetMinutes?: number;
 }
 
+export interface ClaimedQuestItem {
+  questId: string;
+  dateKey: string;
+  claimedAt?: string;
+  xpEarned?: number;
+}
+
 export interface UserGamification {
   streak: number;
   longestStreak: number;
   lastActiveDate?: string;
   totalXp: number;
   level: number;
+  claimedQuests?: ClaimedQuestItem[];
+  streakFreeze?: {
+    equipped: number;
+    lastUsedAt?: string | null;
+  };
+  league?: "bronze" | "silver" | "gold" | "platinum" | "diamond";
+  onboardingCompleted?: boolean;
 }
 
 export interface UserSubscription {
@@ -26,6 +40,8 @@ export interface UserDailyUsage {
   date?: string;
   practiceCount: number;
   minutesSpent: number;
+  earnedBonusPractices?: number;
+  vocabReviewsToday?: number;
 }
 
 export interface UserReferral {
@@ -51,6 +67,11 @@ export interface User {
   quota?: {
     isUnlimited?: boolean;
     limit?: number | string;
+    baseLimit?: number;
+    bonusPractices?: number;
+    maxBonus?: number;
+    canEarnBonus?: boolean;
+    vocabReviewsToday?: number;
     usedToday?: number;
     remaining?: number | string;
   };
@@ -71,14 +92,17 @@ export interface AuthState {
     password: string,
     email: string,
     firstName: string,
-    lastName: string
-  ) => Promise<void>;
+    lastName: string,
+    displayName?: string
+  ) => Promise<any>;
   signIn: (username: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   fetchMe: () => Promise<void>;
   refresh: () => Promise<void>;
+  initSession: () => Promise<void>;
   dailyPracticeCount: number;
   incrementDailyPracticeCount: () => void;
+  updateUser: (fields: Partial<User>) => void;
   updateUserGamification: (gamification: Partial<UserGamification>) => void;
   updateUserDailyUsage: (usage: Partial<UserDailyUsage>) => void;
   updateUserSubscription: (subscription: Partial<UserSubscription>) => void;
@@ -131,9 +155,15 @@ export interface Course {
   description?: string;
   level: string;
   category?: string;
+  courseType?: "video_series" | "ai_kaiwa" | "grammar_curriculum";
+  sourceType?: "community" | "jtalk";
   thumbnail?: string;
   channelName?: string;
+  channelUrl?: string;
   totalLessons?: number;
+  totalVideos?: number;
+  totalDurationMinutes?: number;
+  tags?: string[];
   isPublished: boolean;
   isPremiumOnly: boolean;
   orderIndex: number;
@@ -166,6 +196,7 @@ export interface Topic {
   level: string;
   image?: string;
   category?: string;
+  unitNumber?: number;
   isPremiumOnly?: boolean;
   isPublished: boolean;
   orderIndex?: number;
@@ -196,16 +227,22 @@ export interface VocabularyItem {
 
 export interface Lesson {
   _id: string;
+  courseId?: string | Course;
   topicId: string | Topic;
   title: string;
   description?: string;
   level: string;
+  episodeNumber?: number;
+  orderIndex?: number;
+  lessonType?: string;
   sampleSentence?: string;
   translation?: string;
   image?: string;
   youtubeId?: string;
   videoUrl?: string;
+  sourceType?: "community" | "jtalk";
   channelName?: string;
+  channelUrl?: string;
   subtitles?: VideoSubtitle[];
   duration?: string;
   durationMinutes?: number;
@@ -325,6 +362,44 @@ export interface RoleplayChatResponse {
     betterExpressionFurigana?: string;
   };
   suggestedAnswers?: (string | RoleplaySuggestedAnswer)[];
+}
+
+export interface VocabularyItem {
+  _id: string;
+  userId?: string;
+  kanji: string;
+  furigana?: string;
+  romaji?: string;
+  meaning: string;
+  level: "N5" | "N4" | "N3" | "N2" | "N1";
+  wordType?: "noun" | "verb" | "adjective" | "adverb" | "phrase" | "other";
+  exampleSentence?: string;
+  exampleTranslation?: string;
+  isMastered: boolean;
+  reviewCount: number;
+  lastReviewedAt?: string | null;
+  srsStage?: number; // 0: Mới, 1: Bắt đầu, 2: Nhận biết, 3: Củng cố, 4: Thành thạo, 5: Bậc thầy
+  interval?: number; // số ngày cho chu kỳ ôn tập tiếp theo
+  easeFactor?: number; // hệ số dễ theo SM-2 (mặc định 2.5)
+  repetitions?: number; // số lần lặp thành công liên tiếp
+  nextReviewDate?: string | null;
+  sourceLessonId?: string | null;
+  tags?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateVocabularyPayload {
+  kanji: string;
+  furigana?: string;
+  romaji?: string;
+  meaning: string;
+  level?: "N5" | "N4" | "N3" | "N2" | "N1";
+  wordType?: "noun" | "verb" | "adjective" | "adverb" | "phrase" | "other";
+  exampleSentence?: string;
+  exampleTranslation?: string;
+  sourceLessonId?: string | null;
+  tags?: string[];
 }
 
 
