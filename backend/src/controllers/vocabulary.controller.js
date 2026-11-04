@@ -1,8 +1,263 @@
 import Vocabulary from "../models/Vocabulary.js";
+import SystemVocabulary from "../models/SystemVocabulary.js";
 import User from "../models/User.js";
 import StudyLog from "../models/StudyLog.js";
 import { getTodayDateString } from "../utils/dateUtils.js";
 import { successResponse } from "../utils/apiResponse.js";
+import {
+  translateToVietnamese,
+  sanitizeExampleTranslation,
+  getSinoVietnamese,
+} from "../utils/japaneseMeaningTranslator.js";
+
+/**
+ * Tạo RegExp thông minh hỗ trợ tìm kiếm tiếng Việt (gõ không dấu vẫn khớp từ có dấu)
+ * Ví dụ: "com" -> khớp "cơm", "tot" -> khớp "tốt", "an" -> khớp "ăn", "ngu" -> khớp "ngủ"
+ */
+function makeVietnameseRegex(str) {
+  if (!str) return null;
+  const map = {
+    a: "[aàáảãạăằắẳẵặâầấẩẫậ]",
+    e: "[eèéẻẽẹêềếểễệ]",
+    i: "[iìíỉĩị]",
+    o: "[oòóỏõọôồốổỗộơờớởỡợ]",
+    u: "[uùúủũụưừứửữự]",
+    y: "[yỳýỷỹỵ]",
+    d: "[dđ]",
+  };
+  const normalized = str
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "d")
+    .toLowerCase()
+    .trim();
+
+  let pattern = "";
+  for (const ch of normalized) {
+    if (map[ch]) {
+      pattern += map[ch];
+    } else if (/[.*+?^${}()|[\]\\]/.test(ch)) {
+      pattern += "\\" + ch;
+    } else {
+      pattern += ch;
+    }
+  }
+  return new RegExp(pattern, "i");
+}
+
+/**
+ * GET /api/v1/vocabularies/system
+ * Retrieves system master bank vocabularies for learners
+ * Checks which items are already saved in the current learner's personal notebook
+ */
+export const getSystemVocabularies = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const { level = "N5", search, page = 1, limit = 100 } = req.query;
+
+    const query = {};
+    if (level && level !== "all") {
+      query.level = level;
+    }
+
+    if (search && search.trim()) {
+      const searchPattern = makeVietnameseRegex(search.trim());
+      const searchRegex = new RegExp(search.trim(), "i");
+      query.$or = [
+        { kanji: searchRegex },
+        { furigana: searchRegex },
+        { romaji: searchRegex },
+        { meaning: searchPattern || searchRegex },
+      ];
+    }
+
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(500, Math.max(1, parseInt(limit) || 100));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [items, total, userSavedItems, levelCountsRaw] = await Promise.all([
+      SystemVocabulary.find(query)
+        .sort({ createdAt: 1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      SystemVocabulary.countDocuments(query),
+      Vocabulary.find({ userId }).select("kanji").lean(),
+      SystemVocabulary.aggregate([
+        { $group: { _id: "$level", count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const levelCounts = { all: 0, N5: 0, N4: 0, N3: 0, N2: 0, N1: 0 };
+    if (Array.isArray(levelCountsRaw)) {
+      levelCountsRaw.forEach((row) => {
+        if (row._id && levelCounts[row._id] !== undefined) {
+          levelCounts[row._id] = row.count;
+        }
+        levelCounts.all += row.count || 0;
+      });
+    }
+
+    const savedKanjiSet = new Set(userSavedItems.map((u) => u.kanji));
+
+    const enrichedItems = items.map((item) => {
+      const vMeaning = translateToVietnamese(item.kanji, item.meaning);
+      const vExTrans = sanitizeExampleTranslation(
+        item.kanji,
+        vMeaning,
+        item.exampleTranslation
+      );
+      const sino = item.sinoVietnamese || getSinoVietnamese(item.kanji) || "";
+
+      // Nếu trong DB đang lưu tiếng Anh hoặc thiếu Hán Việt, cập nhật nền
+      const needUpdate =
+        vMeaning !== item.meaning ||
+        vExTrans !== item.exampleTranslation ||
+        (!item.sinoVietnamese && sino);
+
+      if (needUpdate) {
+        SystemVocabulary.updateOne(
+          { _id: item._id },
+          {
+            $set: {
+              meaning: vMeaning,
+              exampleTranslation: vExTrans,
+              ...(sino && !item.sinoVietnamese ? { sinoVietnamese: sino } : {}),
+            },
+          }
+        ).catch(() => {});
+      }
+
+      return {
+        ...item,
+        meaning: vMeaning,
+        sinoVietnamese: sino,
+        exampleTranslation: vExTrans,
+        isSaved: savedKanjiSet.has(item.kanji),
+      };
+    });
+
+    return successResponse(
+      res,
+      {
+        items: enrichedItems,
+        levelCounts,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum) || 1,
+        },
+      },
+      "Lấy danh sách từ vựng kho chung thành công!"
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/vocabularies/save-from-system
+ * Saves a word from System Master Bank into user's personal notebook
+ */
+export const saveSystemVocabToNotebook = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const {
+      systemVocabId,
+      kanji,
+      furigana,
+      romaji,
+      meaning,
+      sinoVietnamese,
+      level,
+      wordType,
+      exampleSentence,
+      exampleFurigana,
+      exampleTranslation,
+    } = req.body;
+
+    let wordData = {
+      kanji,
+      furigana,
+      romaji,
+      meaning,
+      sinoVietnamese,
+      level,
+      wordType,
+      exampleSentence,
+      exampleFurigana,
+      exampleTranslation,
+    };
+
+    if (systemVocabId) {
+      const systemItem = await SystemVocabulary.findById(systemVocabId).lean();
+      if (systemItem) {
+        wordData = {
+          kanji: systemItem.kanji,
+          furigana: systemItem.furigana,
+          romaji: systemItem.romaji,
+          meaning: systemItem.meaning,
+          sinoVietnamese: systemItem.sinoVietnamese,
+          level: systemItem.level,
+          wordType: systemItem.wordType,
+          exampleSentence: systemItem.exampleSentence,
+          exampleFurigana: systemItem.exampleFurigana,
+          exampleTranslation: systemItem.exampleTranslation,
+        };
+      }
+    }
+
+    // Luôn đảm bảo nghĩa lưu vào sổ tay là tiếng Việt chuẩn
+    wordData.meaning = translateToVietnamese(wordData.kanji, wordData.meaning);
+    wordData.exampleTranslation = sanitizeExampleTranslation(
+      wordData.kanji,
+      wordData.meaning,
+      wordData.exampleTranslation
+    );
+    if (!wordData.sinoVietnamese) {
+      wordData.sinoVietnamese = getSinoVietnamese(wordData.kanji) || "";
+    }
+
+    if (!wordData.kanji || !wordData.meaning) {
+      const error = new Error("Dữ liệu từ vựng không đầy đủ.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Check if already in user notebook
+    const existing = await Vocabulary.findOne({
+      userId,
+      kanji: wordData.kanji.trim(),
+    });
+
+    if (existing) {
+      return successResponse(res, existing, "Từ vựng này đã có trong sổ tay của bạn!");
+    }
+
+    const created = await Vocabulary.create({
+      userId,
+      kanji: wordData.kanji.trim(),
+      furigana: (wordData.furigana || "").trim(),
+      romaji: (wordData.romaji || "").trim(),
+      meaning: wordData.meaning.trim(),
+      sinoVietnamese: (wordData.sinoVietnamese || "").trim(),
+      level: wordData.level || "N5",
+      wordType: wordData.wordType || "phrase",
+      exampleSentence: (wordData.exampleSentence || "").trim(),
+      exampleFurigana: (wordData.exampleFurigana || "").trim(),
+      exampleTranslation: (wordData.exampleTranslation || "").trim(),
+      isMastered: false,
+      reviewCount: 0,
+      tags: ["master_bank", wordData.level ? wordData.level.toLowerCase() : "n5"],
+    });
+
+    return successResponse(res, created, "Đã lưu từ vựng vào Sổ tay ôn tập của bạn!");
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * GET /api/v1/vocabularies
@@ -31,12 +286,13 @@ export const getVocabularies = async (req, res, next) => {
     }
 
     if (search && search.trim()) {
+      const searchPattern = makeVietnameseRegex(search.trim());
       const searchRegex = new RegExp(search.trim(), "i");
       const searchClause = [
         { kanji: searchRegex },
         { furigana: searchRegex },
         { romaji: searchRegex },
-        { meaning: searchRegex },
+        { meaning: searchPattern || searchRegex },
       ];
 
       if (query.$or) {
@@ -67,9 +323,11 @@ export const createVocabulary = async (req, res, next) => {
       furigana,
       romaji,
       meaning,
+      sinoVietnamese,
       level,
       wordType,
       exampleSentence,
+      exampleFurigana,
       exampleTranslation,
       sourceLessonId,
       tags,
@@ -81,6 +339,9 @@ export const createVocabulary = async (req, res, next) => {
       throw error;
     }
 
+    const finalMeaning = translateToVietnamese(kanji, meaning);
+    const finalSino = (sinoVietnamese || getSinoVietnamese(kanji) || "").trim();
+
     // Check if word already exists for this user
     const existing = await Vocabulary.findOne({
       userId,
@@ -89,8 +350,10 @@ export const createVocabulary = async (req, res, next) => {
 
     if (existing) {
       existing.furigana = furigana || existing.furigana;
-      existing.meaning = meaning || existing.meaning;
+      existing.meaning = finalMeaning || existing.meaning;
+      existing.sinoVietnamese = finalSino || existing.sinoVietnamese;
       existing.exampleSentence = exampleSentence || existing.exampleSentence;
+      existing.exampleFurigana = exampleFurigana || existing.exampleFurigana;
       existing.exampleTranslation = exampleTranslation || existing.exampleTranslation;
       if (level) existing.level = level;
       await existing.save();
@@ -103,10 +366,12 @@ export const createVocabulary = async (req, res, next) => {
       kanji: kanji.trim(),
       furigana: furigana?.trim() || "",
       romaji: romaji?.trim() || "",
-      meaning: meaning.trim(),
+      meaning: finalMeaning.trim(),
+      sinoVietnamese: finalSino,
       level: level || "N5",
       wordType: wordType || "phrase",
       exampleSentence: exampleSentence?.trim() || "",
+      exampleFurigana: exampleFurigana?.trim() || "",
       exampleTranslation: exampleTranslation?.trim() || "",
       sourceLessonId: sourceLessonId || null,
       tags: tags || [],

@@ -15,7 +15,21 @@ import {
   getYoutubeTranscript,
   enrichSubtitlesWithAi,
   cleanDuplicateVideosHandler,
+  getAdminOrders,
+  updateOrderPaidAt,
+  distributeOrdersTime,
 } from "../controllers/admin.controller.js";
+import {
+  importVocabulary,
+  importVocabularyToLesson,
+  getAdminVocabularies,
+  createAdminVocabulary,
+  updateAdminVocabulary,
+  deleteAdminVocabulary,
+  deleteAdminVocabularyBulk,
+  enrichVocabularyWithAiHandler,
+  resetAllSystemVocabularies,
+} from "../controllers/admin.vocabulary.controller.js";
 import {
   createLesson,
   updateLesson,
@@ -30,6 +44,9 @@ router.use(protectedRoute, adminRoute);
 
 // 1. Overview KPIs & Stats
 router.get("/stats", getStats);
+router.get("/orders", getAdminOrders);
+router.patch("/orders/:id/paid-at", updateOrderPaidAt);
+router.post("/orders/distribute-time", distributeOrdersTime);
 
 // 2. User Management
 router.get("/users", getUsers);
@@ -55,5 +72,17 @@ router.delete("/courses/:id", deleteAdminCourse);
 // 5. Topic Management
 router.get("/topics", getAdminTopics);
 router.post("/topics", createAdminTopic);
+
+// 6. Vocabulary & Master Bank Bulk Management
+router.get("/vocabulary", getAdminVocabularies);
+router.post("/vocabulary", createAdminVocabulary);
+router.post("/vocabulary/reset-all", resetAllSystemVocabularies);
+router.delete("/vocabulary/reset-all", resetAllSystemVocabularies);
+router.post("/vocabulary/ai-enrich", enrichVocabularyWithAiHandler);
+router.post("/vocabulary/import", importVocabulary);
+router.post("/vocabulary/import-to-lesson", importVocabularyToLesson);
+router.delete("/vocabulary/bulk", deleteAdminVocabularyBulk);
+router.patch("/vocabulary/:id", updateAdminVocabulary);
+router.delete("/vocabulary/:id", deleteAdminVocabulary);
 
 export default router;

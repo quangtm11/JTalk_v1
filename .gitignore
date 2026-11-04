@@ -16,3 +16,8 @@ Thumbs.db
 out/
 *.tsbuildinfo
 next-env.d.ts
+
+# Local seeding scripts
+backend/src/scripts/seedPractices.js
+backend/src/scripts/resetTransactionsAndPremium.js
+backend/src/scripts/seedVietnameseUsers.js

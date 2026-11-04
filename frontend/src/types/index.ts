@@ -56,6 +56,8 @@ export interface User {
   username: string;
   email: string;
   displayName: string;
+  firstName?: string;
+  lastName?: string;
   avatarUrl?: string;
   bio?: string;
   phone?: string;
@@ -272,7 +274,7 @@ export interface Order {
   orderCode: string;
   userId: string;
   amount: number;
-  paymentMethod: "momo" | "vnpay";
+  paymentMethod: "vietqr" | "vnpay" | string;
   status: "pending" | "completed" | "failed" | "cancelled";
   transactionId?: string;
   payUrl?: string;
@@ -339,6 +341,7 @@ export interface RoleplayMessage {
   romaji?: string;
   translation?: string;
   timestamp?: string;
+  isFinished?: boolean;
   evaluation?: {
     naturalnessScore?: number;
     grammarAdvice?: string;
@@ -355,6 +358,7 @@ export interface RoleplayChatResponse {
     romaji?: string;
     translation?: string;
   };
+  isFinished?: boolean;
   userEvaluation?: {
     naturalnessScore?: number;
     grammarAdvice?: string;
@@ -371,9 +375,11 @@ export interface VocabularyItem {
   furigana?: string;
   romaji?: string;
   meaning: string;
+  sinoVietnamese?: string;
   level: "N5" | "N4" | "N3" | "N2" | "N1";
   wordType?: "noun" | "verb" | "adjective" | "adverb" | "phrase" | "other";
   exampleSentence?: string;
+  exampleFurigana?: string;
   exampleTranslation?: string;
   isMastered: boolean;
   reviewCount: number;
@@ -394,9 +400,11 @@ export interface CreateVocabularyPayload {
   furigana?: string;
   romaji?: string;
   meaning: string;
+  sinoVietnamese?: string;
   level?: "N5" | "N4" | "N3" | "N2" | "N1";
   wordType?: "noun" | "verb" | "adjective" | "adverb" | "phrase" | "other";
   exampleSentence?: string;
+  exampleFurigana?: string;
   exampleTranslation?: string;
   sourceLessonId?: string | null;
   tags?: string[];
